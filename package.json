@@ -1,0 +1,23 @@
+{
+  "name": "maxshelf",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@maxblom/headlessmax": "^0.1.0",
+    "@maxblom/headlessmax-appshell": "^0.1.0",
+    "nuxt": "^4.5.2",
+    "vue": "^3.5.41",
+    "vue-router": "^5.2.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "vue-demi@0.14.10": true
+  }
+}
