@@ -8,10 +8,6 @@ definePageMeta({
 
 useHead({
   title: 'Payment | Maxshelf',
-  // Safari tints its own chrome (iOS status bar/toolbar, macOS 15+ tab
-  // bar) to match theme-color, and Nuxt's useHead updates it
-  // automatically on every client-side navigation — this page's
-  // background is plain white top-to-bottom, matching this value.
   meta: [{ name: 'theme-color', content: '#ffffff' }],
   link: [
     { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -32,8 +28,6 @@ interface BagItem {
 const BAG_STORAGE_KEY = 'maxshelf-bag'
 const CHECKOUT_INFO_KEY = 'maxshelf-checkout-info'
 
-// Same inlined-not-imported pattern used throughout the bag/checkout
-// flow — see the comment on the matching function in [slug].vue for why.
 function getBag(): BagItem[] {
   let raw: string | null = null
   try {
@@ -54,8 +48,6 @@ function clearBag() {
   try {
     localStorage.removeItem(BAG_STORAGE_KEY)
   } catch {
-    // Not fatal — the confirmation still shows below either way, it
-    // just means the bag might still have items in it next visit.
   }
 }
 
@@ -66,9 +58,6 @@ interface CheckoutInfo {
   phone: string
 }
 
-// Read once on mount, purely for display ("shipping to") — /pay doesn't
-// require this to exist (someone could land here directly), it just has
-// nothing to show under "Shipping to" if it's missing.
 const checkoutInfo = ref<CheckoutInfo | null>(null)
 
 interface BagLineItem {
@@ -129,13 +118,6 @@ const card = reactive({
   cvc: '',
 })
 
-// Mock only — this is card-shape validation (digit count, spacing), not
-// a real payment integration. No card network is contacted, nothing is
-// charged; "Pay" just checks the numbers look roughly like a card
-// number and CVC and then treats that as success. A real payment step
-// would go through an actual processor (Stripe et al.), never handle
-// raw card numbers directly in application code at all, and this app
-// does neither.
 function formatCardNumber(event: Event) {
   const input = event.target as HTMLInputElement
   const digitsOnly = input.value.replace(/\D/g, '').slice(0, 19)
@@ -161,14 +143,6 @@ interface OrderRecord {
   shipping: CheckoutInfo | null
 }
 
-// Newest first. This is what makes /account's order history real
-// instead of invented — without this, "Order confirmed" just cleared
-// the bag and forgot everything, so there'd be nothing to show there at
-// all. Storing title/price/quantity directly on the record (not just
-// ids) rather than re-fetching from /api/book later — a past order
-// should show what was actually ordered at the time, an immutable
-// snapshot, not live current data that could drift if a book's listing
-// ever changed.
 function saveOrder(order: OrderRecord) {
   try {
     const raw = localStorage.getItem(ORDERS_KEY)
@@ -184,8 +158,6 @@ function saveOrder(order: OrderRecord) {
     orders.unshift(order)
     localStorage.setItem(ORDERS_KEY, JSON.stringify(orders))
   } catch {
-    // Not fatal — the confirmation still shows on screen either way, it
-    // just won't appear in /account's history for next time.
   }
 }
 
@@ -222,7 +194,6 @@ function pay() {
   try {
     localStorage.removeItem(CHECKOUT_INFO_KEY)
   } catch {
-    // Not fatal — order is already confirmed either way.
   }
 }
 </script>
@@ -306,10 +277,6 @@ function pay() {
 .page *,
 .page *::before,
 .page *::after {
-  /* Same universal reset as bag.vue/checkout.vue — this exact bug class
-     (width: 100% + padding/border with no box-sizing = overflow past
-     the container) turned up in both those files too; resetting it here
-     the same way rather than leaving this one file inconsistent. */
   box-sizing: border-box;
 }
 
@@ -326,8 +293,6 @@ function pay() {
   background: var(--paper);
   color: var(--ink);
   font-family: 'Inter', sans-serif;
-  /* Same vertical + horizontal centering, same 100dvh mobile-chrome fix
-     as bag.vue/checkout.vue. */
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
@@ -497,18 +462,6 @@ function pay() {
   margin-top: 0.5rem;
 }
 
-/* text-align: center in addition to align-items: center — align-items
-   only centers each flex child as a BLOCK (the checkmark box, the
-   heading, the button), it doesn't center the TEXT inside a child that
-   spans the full available width (like .status-text, which wraps at
-   the column's max-width) — without text-align too, multi-line text
-   would still ratchet left inside its own now-centered box. Combined
-   with .page's own min-height: 100dvh + justify-content: center (see
-   above), this centers the confirmation both horizontally (this rule)
-   and vertically (that one) at any screen size — the page-level
-   centering was already there, but did nothing for THIS block since it
-   still explicitly left-aligned its own children regardless of where
-   the column itself sat. */
 .confirmation {
   display: flex;
   flex-direction: column;

@@ -13,23 +13,6 @@ interface BagItem {
 
 const BAG_STORAGE_KEY = 'maxshelf-bag'
 
-// Inlined here (and identically in app/pages/bag.vue) rather than
-// imported from a shared app/utils/bag.ts file — a separate file's
-// import path is one more thing that has to be placed exactly right for
-// this to work at all, and that's exactly what broke last time (Vite:
-// "Failed to resolve import '~/utils/bag' — does the file exist?").
-// Inlining removes that failure mode entirely: this function works as
-// long as this file itself is in place, nothing else to get wrong.
-// Wrapped in try/catch — private-browsing modes and some browser
-// configurations throw on ANY localStorage access, not just on a bad
-// value, and that should surface as a real failure message (see
-// addToCart below), not crash the page or fail silently.
-//
-// Adding the same book again increments its quantity by however many
-// were selected on the page (see the quantity stepper below), instead
-// of always just +1 — `existing.quantity ?? 1` covers bag entries saved
-// before quantity existed at all, treating them as a starting quantity
-// of 1 rather than crashing on a missing field.
 function addToBag(item: { id: string; price: string }, addQuantity: number): boolean {
   try {
     const raw = localStorage.getItem(BAG_STORAGE_KEY)
@@ -59,9 +42,6 @@ const route = useRoute()
 const slug = route.params.slug as string
 const id = extractIdFromSlug(slug)
 
-// The genre the person came from, carried as a query param from the grid
-// link. Falls back to a plain /books link (no filter) if this page was
-// visited directly — a shared link or a reload with no "from" present.
 const fromGenre = route.query.from as string | undefined
 const backTo = computed(() => (fromGenre ? { path: '/books', query: { genre: fromGenre } } : '/books'))
 
@@ -69,30 +49,11 @@ if (!id) {
   throw createError({ statusCode: 404, statusMessage: 'Book not found', fatal: true })
 }
 
-// Blocking `await useFetch` — this was briefly switched to useLazyFetch
-// to fix a "click feels frozen" UX problem for cold, unwarmed books, but
-// that came at a real SEO cost: lazy fetches defer to onMounted, which
-// never fires during SSR, so crawlers (and anything else that doesn't
-// execute JS — most social-media link unfurlers, some search engines)
-// received the loading skeleton instead of the actual book content.
-// Reverting to blocking is safe to do now without reintroducing that
-// original problem: warm-genres.ts pre-warms book details at startup,
-// and prefetchBook (index.vue) warms detail data on hover before a
-// click even happens — most real navigations already hit warm cache by
-// the time someone clicks, so the blocking wait is rarely actually felt
-// by a real user. Crawlers, which never hover first, are exactly the
-// case this change is for.
 const { data, error, refresh } = await useFetch<BookDetail>(`/api/book/${id}`, {
   key: `book-detail-${id}`,
   dedupe: 'defer',
 })
 
-// A 404 here means the slug parsed fine but the book itself doesn't
-// exist (bookDetail.ts throws this for a genuinely missing OpenLibrary
-// work) — escalated the same way as the grid's own 404 handling
-// (index.vue), into Nuxt's real global error page (app/error.vue) with
-// the correct HTTP status code, rather than a small error box on an
-// otherwise-empty page.
 watch(
   error,
   (err) => {
@@ -101,67 +62,32 @@ watch(
       showError(err as any)
     }
   },
-  // immediate: true matters here for the same reason as index.vue's
-  // equivalent watcher: with a blocking `await useFetch`, error.value
-  // can already be the final 404 by the time this watcher registers (the
-  // await already resolved before this line runs), so a fresh/direct
-  // navigation straight to a missing book needs the immediate check —
-  // there's no prior "valid" state for a plain watch to change FROM.
   { immediate: true }
 )
 
-// Plain text, no markup, truncated to a sane meta-description length —
-// reused for both <meta name="description"> and og:description below
-// rather than computing it twice. Falls back to an author/title
-// sentence when a book has no description at all (a real, fairly common
-// case in this data — see the earlier "No description available"
-// empty-state), so the tag is never just blank.
+const META_DESCRIPTION_MAX_LENGTH = 160
+const META_DESCRIPTION_TRUNCATE_LENGTH = 157
+
 const metaDescription = computed(() => {
   if (!data.value) return 'Browse books on Maxshelf.'
   const raw =
     data.value.description ||
     `${data.value.title} by ${data.value.authors?.length ? data.value.authors.join(', ') : 'an unknown author'}, available on Maxshelf.`
-  return raw.length > 160 ? `${raw.slice(0, 157)}...` : raw
+  return raw.length > META_DESCRIPTION_MAX_LENGTH
+    ? `${raw.slice(0, META_DESCRIPTION_TRUNCATE_LENGTH)}...`
+    : raw
 })
 
-// og:image needs to be an absolute URL to work reliably across social
-// platforms (Slack, Twitter/X, iMessage, etc.) — a relative /api/cover/…
-// path is technically valid per the OG spec but many unfurlers don't
-// resolve it correctly. useRequestURL() gets the actual origin this
-// request came in on, so this works regardless of what domain the app
-// ends up deployed to, without hardcoding one.
 const requestUrl = useRequestURL()
 const absoluteCoverUrl = computed(() =>
   data.value?.coverUrl ? new URL(data.value.coverUrl, requestUrl.origin).toString() : undefined
 )
 
-// Canonical URL — this route has a real duplicate-content bug worth
-// closing: extractIdFromSlug only cares about the ID suffix, so
-// /books/literally-anything-OL66554W and /books/pride-and-prejudice-
-// OL66554W both resolve to the exact same book. Without a canonical
-// tag, Google could index several slug-text variants of one page as if
-// they were different pages, diluting whatever ranking signal any of
-// them accumulate. Regenerating the slug from the ACTUAL fetched title
-// (not just trusting whatever text happened to be in the incoming URL)
-// means canonical always points to the one "correct" slug regardless of
-// how the page was reached — an old link, a typo, a title that's since
-// changed on OpenLibrary's end. The ?from= query param is deliberately
-// excluded too: it only affects the "back to books" link's target, not
-// the page's actual content, so every ?from= variant should canonicalize
-// to the same URL rather than being treated as distinct pages.
 const canonicalUrl = computed(() => {
   const path = data.value ? `/books/${bookSlug(data.value.title, id ?? '')}` : `/books/${slug}`
   return new URL(path, requestUrl.origin).toString()
 })
 
-// JSON-LD structured data (schema.org Book) — this is what actually
-// enables a rich result in Google search (cover thumbnail, author) as
-// opposed to a plain blue link; meta tags alone don't do that.
-// Deliberately bibliographic fields only — no Offers/price. The price
-// shown on this page is a deterministic placeholder (see the price
-// computed below), not a real, live commerce price, and presenting
-// fabricated pricing to Google as structured data would be inaccurate
-// and against their structured-data guidelines, not just unnecessary.
 const bookSchema = computed(() => {
   if (!data.value) return null
   return {
@@ -180,10 +106,6 @@ const bookSchema = computed(() => {
 useHead({
   title: computed(() => (data.value ? `${data.value.title} | Maxshelf` : 'Book | Maxshelf')),
   meta: [
-    // Safari tints its own chrome (iOS status bar/toolbar, macOS 15+ tab
-    // bar) to match theme-color, and Nuxt's useHead updates it
-    // automatically on every client-side navigation — this page's
-    // background is plain white top-to-bottom, matching this value.
     { name: 'theme-color', content: '#ffffff' },
     { name: 'description', content: metaDescription },
     { property: 'og:type', content: 'book' },
@@ -209,31 +131,17 @@ useHead({
     ? [
         {
           type: 'application/ld+json',
-          // </ escaped to <\/ — defensive against a book description
-          // that happens to contain a literal closing-script-tag
-          // sequence, which would otherwise prematurely end this script
-          // tag and break the page. Unlikely with this data source, but
-          // cheap insurance for content Claude doesn't control.
           innerHTML: JSON.stringify(bookSchema.value).replace(/<\//g, '<\\/'),
         },
       ]
     : [],
 })
 
-// The genre someone came from, prettified for use as a small eyebrow
-// label above the title ("science_fiction" -> "Science Fiction") — ties
-// the page back to real navigation context instead of an invented
-// category label.
 const eyebrow = computed(() => {
   if (!fromGenre) return null
   return fromGenre.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 })
 
-// Deterministic, not truly random — the same book id always produces
-// the same price on every visit/reload, rather than a fresh number each
-// render. A simple string hash (FNV-1a-ish: multiply-and-add over each
-// char code) maps the id to a number, then folds that into a plausible
-// book price range ($7.99–$29.99, .99 pricing).
 function hashStringToUint32(str: string): number {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
@@ -244,7 +152,7 @@ function hashStringToUint32(str: string): number {
 
 const price = computed(() => {
   if (!data.value) return null
-  const dollars = 7 + (hashStringToUint32(data.value.id) % 23) // 7..29
+  const dollars = 7 + (hashStringToUint32(data.value.id) % 23)
   return `$${dollars}.99`
 })
 
@@ -252,10 +160,6 @@ const addedToCart = ref(false)
 const addToCartFailed = ref(false)
 let cartMessageTimer: ReturnType<typeof setTimeout> | null = null
 
-// A genuinely interactive stepper, not a static label — clickable +/-
-// buttons AND a directly-typeable number input, both writing to the
-// SAME ref, clamped to [1, MAX_QUANTITY] either way so neither path can
-// push it out of range.
 const MAX_QUANTITY = 99
 const quantity = ref(1)
 
@@ -288,9 +192,6 @@ function addToCart() {
       addedToCart.value = false
     }, 2500)
   } else {
-    // A real failure (localStorage threw — quota, private browsing,
-    // disabled entirely) gets its own message rather than silently
-    // showing "Added to bag" for something that didn't actually save.
     addToCartFailed.value = true
     addedToCart.value = false
     cartMessageTimer = setTimeout(() => {
@@ -306,10 +207,6 @@ onUnmounted(() => {
 
 const FAVORITES_KEY = 'maxshelf-favorites'
 
-// Same inlined-not-imported pattern used throughout the bag/checkout
-// flow (see addToBag above) — a plain array of book ids is all this
-// needs, stored/read directly rather than through a shared file whose
-// import path can be wrong.
 function getFavoriteIds(): string[] {
   try {
     const raw = localStorage.getItem(FAVORITES_KEY)
@@ -325,8 +222,6 @@ function setFavoriteIds(ids: string[]) {
   try {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(ids))
   } catch {
-    // Not fatal — isFavorited below still reflects the toggle for this
-    // session, it just won't survive a reload if storage is blocked.
   }
 }
 
@@ -334,15 +229,10 @@ const isFavorited = ref(false)
 const favoritesMessage = ref('')
 let favoritesMessageTimer: ReturnType<typeof setTimeout> | null = null
 
-// localStorage only exists client-side — this has to run in onMounted,
-// not top-level setup, or it'd throw during SSR.
 onMounted(() => {
   if (id) isFavorited.value = getFavoriteIds().includes(id)
 })
 
-// A genuine toggle, not a one-way "add" — clicking again on an already-
-// favorited book removes it, since a favorites feature that can only
-// grow and never shrink isn't really usable.
 function toggleFavorite() {
   if (!id) return
 
@@ -367,15 +257,6 @@ function toggleFavorite() {
   }, 2500)
 }
 
-// Same SSR hydration race as the grid (see index.vue): this cover is
-// server-rendered and, being the page's hero image, is exactly the kind
-// of resource that can finish loading before our JS bundle hydrates and
-// attaches the @load listener below. Checking `.complete` once the
-// element is mounted catches that case; @load covers everything that
-// loads after. Also matters more here than in the grid: this is the
-// largest above-the-fold image on the page (the LCP candidate), so it
-// gets `fetchpriority="high"` and eager loading explicitly rather than
-// relying on defaults.
 const coverLoaded = ref(false)
 const coverErrored = ref(false)
 
@@ -579,10 +460,6 @@ function setCoverRef(el: Element | null) {
   width: 260px;
 }
 
-/* The signature device: a thin-bordered "plate" the cover sits in, with
-   the book's real OpenLibrary id underneath as a small monospace
-   catalog number — an authentic library/bookstore cataloging touch
-   reusing data that's already there, not an invented decoration. */
 .cover-wrap {
   position: relative;
   width: 100%;
@@ -772,10 +649,6 @@ function setCoverRef(el: Element | null) {
   outline-offset: -2px;
 }
 
-/* Genuinely editable, not just clickable — typing a number directly
-   works too, clamped to [1, MAX_QUANTITY] in onQuantityInput either
-   way, so there's no route (click or type) that can push it out of
-   range. */
 .stepper-input {
   width: 2.75rem;
   border: none;
@@ -785,9 +658,6 @@ function setCoverRef(el: Element | null) {
   font-family: inherit;
   font-size: 0.95rem;
   color: var(--ink);
-  /* Hide the native up/down spinner arrows — the +/- buttons already
-     serve that purpose, and the browser's tiny built-in ones look out
-     of place next to them. */
   -moz-appearance: textfield;
 }
 

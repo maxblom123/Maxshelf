@@ -1,21 +1,21 @@
+const DIACRITICS_PATTERN = /[\u0300-\u036f]/g
+const NON_ALPHANUMERIC_PATTERN = /[^a-z0-9]+/g
+const EDGE_HYPHENS_PATTERN = /^-+|-+$/g
+const WORK_ID_PATTERN = /(OL\d+W)$/
+
 export function slugify(text: string): string {
   return text
     .toLowerCase()
     .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '') // strip accents
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '')
+    .replace(DIACRITICS_PATTERN, '')
+    .replace(NON_ALPHANUMERIC_PATTERN, '-')
+    .replace(EDGE_HYPHENS_PATTERN, '')
 }
 
-// e.g. bookSlug("The Picture of Dorian Gray", "OL8193416W")
-//   -> "the-picture-of-dorian-gray-OL8193416W"
 export function bookSlug(title: string, id: string): string {
   return `${slugify(title)}-${id}`
 }
 
-// Pulls the OpenLibrary work ID back out of a slug, regardless of the
-// title portion — the ID is always the real source of truth.
 export function extractIdFromSlug(slug: string): string | null {
-  const match = slug.match(/(OL\d+W)$/)
-  return match ? match[1] : null
+  return slug.match(WORK_ID_PATTERN)?.[1] ?? null
 }

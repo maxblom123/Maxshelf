@@ -31,32 +31,19 @@ export interface BooksResult {
   }>
 }
 
+const PAGE_SIZE = 24
 const SUBJECT_TIMEOUT_MS = 15000
-
-// Cover warming used to be awaited here with a 2000ms budget — every
-// cold genre/page paid up to 2s while we fired 24 concurrent cover
-// downloads+resizes, and rapid genre switching stacked those bursts on
-// top of each other with no cap. That's what caused the click-fast
-// timeouts. Warming is now fire-and-forget: the listing response goes
-// out as soon as the subject metadata is back, and warming happens in
-// the background bounded by openLibraryCoverLimiter, so it can never
-// stampede regardless of how fast someone clicks through genres.
+const MAX_SUBJECTS_PER_BOOK = 5
 
 async function fetchBooksForSubject(subject: string, page: number): Promise<BooksResult> {
-  const limit = 24
-  const offset = (page - 1) * limit
+  const offset = (page - 1) * PAGE_SIZE
 
   const url = new URL(`https://openlibrary.org/subjects/${subject}.json`)
-  url.searchParams.set('limit', String(limit))
+  url.searchParams.set('limit', String(PAGE_SIZE))
   url.searchParams.set('offset', String(offset))
 
   let response: SubjectResponse
   try {
-    // Rate token acquired before the concurrency slot, same reasoning as
-    // cover.ts — see the shared openLibraryRateLimiter note in
-    // limiter.ts. This limiter is shared across JSON and cover requests
-    // alike, since OpenLibrary's own rate policy doesn't distinguish
-    // between the two.
     response = await openLibraryRateLimiter.run(() =>
       openLibraryApiLimiter.run(() =>
         $fetch<SubjectResponse>(url.toString(), {
@@ -66,9 +53,6 @@ async function fetchBooksForSubject(subject: string, page: number): Promise<Book
       )
     )
   } catch {
-    // Thrown, not returned — a cached function should never cache a
-    // failure as if it were valid data. Nitro logs thrown errors and
-    // routes them through its own error handling instead of caching them.
     throw createError({
       statusCode: 504,
       statusMessage: `OpenLibrary took too long to respond for subject "${subject}". Please try again.`,
@@ -80,34 +64,12 @@ async function fetchBooksForSubject(subject: string, page: number): Promise<Book
     title: work.title,
     authors: work.authors?.map((a) => a.name) ?? [],
     year: work.first_publish_year ?? null,
-    subjects: work.subject?.slice(0, 5) ?? [],
+    subjects: work.subject?.slice(0, MAX_SUBJECTS_PER_BOOK) ?? [],
     languages: [] as string[],
     coverId: work.cover_id ?? null,
     rating: null as null,
   }))
 
-  // Fire-and-forget, bounded by openLibraryCoverLimiter (via getCoverWebp
-  // itself — see the note on the double-wrap bug this replaced below).
-  // We deliberately do NOT await this on the response path (see note
-  // above). The listing response — all the client actually needs to
-  // start rendering — goes out immediately; images warm themselves in
-  // the background and are picked up by bufferedBinary's single-flight
-  // cache the moment the browser requests them.
-  //
-  // priority: 'low' — this is purely speculative warming for a page that
-  // may not even be the one someone lands on. Explicitly low priority
-  // means it only ever consumes limiter capacity that real, user-facing
-  // cover requests (the actual /api/cover route, 'high' by default)
-  // aren't asking for — so a fast-paginating user's CURRENT page never
-  // queues behind warming work for pages already scrolled past.
-  //
-  // Previously this wrapped getCoverWebp in ITS OWN openLibraryCoverLimiter
-  // .run() call on top of the one getCoverWebp already makes internally
-  // (cover.ts, on any cold miss) — a redundant nested wrap that held TWO
-  // of the limiter's slots per single cover fetch during warming instead
-  // of one, silently halving real warming throughput. Removed; getCoverWebp
-  // already owns its own concurrency, this just needed to pass priority
-  // through to it.
   void Promise.allSettled(
     booksWithCoverId
       .filter((book) => book.coverId !== null)

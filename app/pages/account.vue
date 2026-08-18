@@ -8,15 +8,6 @@ definePageMeta({
 
 useHead({
   title: 'Your Account | Maxshelf',
-  // Safari tints its own chrome (iOS status bar/toolbar, macOS 15+ tab
-  // bar) to match theme-color, and Nuxt's useHead updates it
-  // automatically on every client-side navigation. This one is
-  // genuinely different from every other page in the app — black, not
-  // white — because .hero (the reversed black bar) sits right at the
-  // very top of this page's viewport, unlike anywhere else that's
-  // plain white top-to-bottom. Matching THIS page's real color here
-  // rather than reusing the white value everywhere else is the actual
-  // point of doing this per-page instead of once globally.
   meta: [{ name: 'theme-color', content: '#000000' }],
   link: [
     { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -38,20 +29,9 @@ interface OrderRecord {
 
 const ORDERS_KEY = 'maxshelf-orders'
 
-// localStorage only exists client-side, so this read has to happen in
-// onMounted, not top-level setup, or it'd throw during SSR. Orders are
-// written by /pay on successful "payment" — see saveOrder() there. This
-// is a read-only view of that same key, newest first (the write side
-// already unshifts new orders to the front).
 const orders = ref<OrderRecord[]>([])
 const isLoading = ref(true)
 
-// Favorites — written by the toggle button on the book detail page
-// (app/pages/books/[slug].vue), stored as a plain array of book ids.
-// Only ids are stored there, so this fetches title/cover here the same
-// way the bag/order flows fetch book details from the id-only storage
-// they keep — one canonical source for book metadata (/api/book/:id),
-// not duplicated into every localStorage key that references a book.
 const FAVORITES_KEY = 'maxshelf-favorites'
 
 interface FavoriteBook {
@@ -127,11 +107,6 @@ function formatDate(iso: string): string {
 
 <template>
   <main class="page">
-    <!-- Full-bleed reversed header bar — the signature move here: a
-         solid black band with the wordmark treatment reversed out to
-         white, the numbered index style ("N.") is a direct Swiss/ISOTYPE
-         convention for labeling grid modules, not a fake sequence — it's
-         literally counting the sections below. -->
     <header class="hero">
       <NuxtLink to="/books" class="back-link">BACK TO BOOKS</NuxtLink>
       <h1 class="title">YOUR<br />ACCOUNT</h1>
@@ -219,16 +194,6 @@ function formatDate(iso: string): string {
 </template>
 
 <style scoped>
-/* SWISS / BRUTALIST — deliberate departure from the soft "bookstore"
-   language used elsewhere in this app (paper/moss/hairline, rounded
-   corners, soft shadows). This page now runs on its own token set:
-   pure black/white, ONE accent (red — the classic Swiss International
-   Style accent, Müller-Brockmann posters etc.), zero border-radius
-   anywhere, zero blurred shadows. Where a shadow is used at all, it's a
-   hard, non-blurred offset block (box-shadow: Npx Npx 0 #000) — the
-   neo-brutalist device that reads as a solid object, not a soft
-   elevation cue. Borders are thick (2-3px) and always pure black, not
-   thin hairlines. */
 .page {
   --ink: #000;
   --paper: #fff;
@@ -240,26 +205,6 @@ function formatDate(iso: string): string {
   background: var(--paper);
   color: var(--ink);
   font-family: 'Inter', sans-serif;
-  /* This is what actually makes "sections scroll, not the page" work:
-     .page is pinned to exactly the viewport height and clips anything
-     that doesn't fit at this level. Everything below has to fit inside
-     that budget — .hero keeps its natural height (flex-shrink: 0), and
-     .grid gets whatever's left over (flex: 1). No guessed pixel heights
-     anywhere, which is what broke last time (an estimated max-height on
-     the list itself cut cards off mid-render instead of scrolling
-     cleanly).
-
-     100vh, then 100dvh as an override — this matters specifically on
-     phones: 100vh is defined as the LARGEST possible viewport (address
-     bar hidden), so on a phone where the browser chrome is currently
-     showing, a page pinned to 100vh is taller than what's actually
-     visible and its bottom edge — including part of the second module
-     on a stacked mobile layout — ends up clipped behind that chrome.
-     100dvh tracks the viewport that's ACTUALLY available right now and
-     resizes live as the browser bars show/hide on scroll. Declared as a
-     second, later rule rather than a single dvh value so browsers that
-     don't yet support dvh still get the vh fallback instead of an
-     invalid height. */
   height: 100vh;
   height: 100dvh;
   display: flex;
@@ -310,13 +255,6 @@ function formatDate(iso: string): string {
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  /* No more align-items: start here — that was the previous fix for a
-     different problem (the divider running past short content when the
-     PAGE scrolled freely). Now that each module has a genuinely fixed
-     height (see .page above) and scrolls its own content internally,
-     modules stretching to match the row (the default) is correct: both
-     panels are meant to occupy the same fixed height regardless of how
-     much they contain, the same way two panes in a real app UI would. */
   border-top: 3px solid var(--ink);
   flex: 1;
   min-height: 0;
@@ -358,21 +296,11 @@ function formatDate(iso: string): string {
   text-transform: uppercase;
 }
 
-/* THE scroll container — everything below the fixed head scrolls in
-   here, within whatever height .module actually has (which is bounded
-   by .grid, which is bounded by .page's 100vh). This is the piece that
-   makes it work correctly instead of guessing: flex: 1 + min-height: 0
-   means it always exactly fills the remaining space, no matter how tall
-   the head or hero happen to render at any given screen size. */
 .module-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-right: 0.75rem;
-  /* Bottom padding matters for the same reason as the right padding —
-     the last card's hard offset shadow (6-8px, non-blurred) would
-     otherwise get clipped right at the scroll boundary instead of
-     having room to actually render. */
   padding-bottom: 0.75rem;
 }
 
@@ -422,11 +350,6 @@ function formatDate(iso: string): string {
   color: var(--ink);
 }
 
-/* No internal scroll box here — an earlier attempt capped this with a
-   guessed max-height, but that cut cards off mid-render instead of
-   scrolling cleanly (the estimate never quite matched real card
-   heights). Simpler and actually correct: let this grow naturally as
-   part of the page's own single scrollbar. */
 .favorites-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -567,13 +490,6 @@ function formatDate(iso: string): string {
 @media (max-width: 860px) {
   .grid {
     grid-template-columns: 1fr;
-    /* Explicit row heights matter here — without this, each stacked
-       module would size to its own content (the grid's default row
-       behavior) and the second one would just get clipped by .grid's
-       overflow: hidden instead of getting its fair share of height.
-       This gives each module exactly half the available space, same
-       bounded-panel-with-internal-scroll behavior as the desktop
-       side-by-side layout. */
     grid-template-rows: 1fr 1fr;
   }
 
@@ -597,10 +513,6 @@ function formatDate(iso: string): string {
 }
 
 @media (max-width: 480px) {
-  /* Single column, not the previous (no-op) repeat(2, 1fr) — at genuinely
-     phone-narrow widths, 2 favorite-book columns leave each card too
-     cramped (cover + title + author squeezed into ~120px), and a single
-     wider card reads far better than two tiny ones. */
   .favorites-grid {
     grid-template-columns: 1fr;
   }

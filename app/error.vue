@@ -1,34 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { NuxtError } from '#app'
 
-// Nuxt renders this component (app/error.vue) automatically whenever
-// showError()/a fatal createError() fires anywhere in the app — this is
-// what makes a 404 an actual full-page experience with the correct HTTP
-// status code, rather than just another state inside a page's own error
-// box. See index.vue's watch(error, ...) for where a 404 from
-// /api/books gets escalated into this via showError().
 const props = defineProps<{
-  error: {
-    statusCode?: number
-    statusMessage?: string
-    message?: string
-  }
+  error: NuxtError
 }>()
 
 const isNotFound = computed(() => props.error?.statusCode === 404)
 
-// Safari tints its own chrome (iOS status bar/toolbar, macOS 15+ tab
-// bar) to match theme-color, same as every other page in the app — this
-// one had no useHead call at all before, so it never declared its own
-// value regardless of what triggered it (a fresh SSR error response or
-// a client-side showError() from another page).
 useHead({
   meta: [{ name: 'theme-color', content: '#ffffff' }],
 })
 
-// clearError (Nuxt's own composable, not a plain navigateTo) is what
-// actually resets the fatal error state — a plain navigation would just
-// carry the error screen along to wherever it went next.
 function goHome() {
   clearError({ redirect: '/books' })
 }

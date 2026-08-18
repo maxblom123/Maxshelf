@@ -8,10 +8,6 @@ definePageMeta({
 
 useHead({
   title: 'Your Bag | Maxshelf',
-  // Safari tints its own chrome (iOS status bar/toolbar, macOS 15+ tab
-  // bar) to match theme-color, and Nuxt's useHead updates it
-  // automatically on every client-side navigation — this page's
-  // background is plain white top-to-bottom, matching this value.
   meta: [{ name: 'theme-color', content: '#ffffff' }],
   link: [
     { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -31,13 +27,6 @@ interface BagItem {
 
 const BAG_STORAGE_KEY = 'maxshelf-bag'
 
-// Inlined here (and identically in app/pages/books/[slug].vue) rather
-// than imported from a separate app/utils/bag.ts file — see the comment
-// on the matching function in [slug].vue for why: a shared file's import
-// path is one more thing that can be placed wrong, and that's exactly
-// what broke last time. Both copies read/write the exact same
-// localStorage key, so they stay in sync regardless of which page wrote
-// what.
 function getBag(): BagItem[] {
   let raw: string | null = null
   try {
@@ -65,8 +54,6 @@ interface BagLineItem {
 const items = ref<BagLineItem[]>([])
 const isLoading = ref(true)
 
-// localStorage only exists client-side — this whole read has to happen
-// in onMounted, not at top-level setup, or it would throw during SSR.
 onMounted(async () => {
   const bag = getBag()
 
@@ -75,12 +62,6 @@ onMounted(async () => {
     return
   }
 
-  // Deliberately storing only {id, price, quantity} in localStorage —
-  // title and cover are fetched here instead of also being duplicated
-  // into storage, reusing the same cached /api/book route the detail
-  // page already warms rather than inventing a second place book
-  // metadata lives. `entry.quantity ?? 1` covers bag entries saved
-  // before quantity existed at all.
   const results = await Promise.allSettled(
     bag.map((entry) =>
       $fetch<BookDetail>(`/api/book/${entry.id}`).then(
@@ -102,8 +83,6 @@ onMounted(async () => {
   isLoading.value = false
 })
 
-// Unit price × quantity, not just price — this is the actual line
-// amount for a row with more than one of the same book.
 function lineTotal(item: BagLineItem): string {
   return `$${(parseFloat(item.price.replace('$', '')) * item.quantity).toFixed(2)}`
 }
@@ -116,10 +95,6 @@ const total = computed(() => {
   return `$${sum.toFixed(2)}`
 })
 
-// Persists an exact quantity for one bag entry back to localStorage —
-// different from [slug].vue's addToBag, which ADDS to whatever's
-// already there; this SETS it directly, since that's what changing the
-// stepper on an existing line means.
 function setBagItemQuantity(id: string, newQuantity: number) {
   try {
     const raw = localStorage.getItem(BAG_STORAGE_KEY)
@@ -138,20 +113,9 @@ function setBagItemQuantity(id: string, newQuantity: number) {
       localStorage.setItem(BAG_STORAGE_KEY, JSON.stringify(bag))
     }
   } catch {
-    // If localStorage is genuinely unavailable (private browsing, quota,
-    // disabled), the mutation to `item.quantity` below still updates
-    // what's on screen — it just won't survive a reload. Not silently
-    // pretending it's fully persisted, but also not blocking the
-    // in-session UI update over a storage failure.
   }
 }
 
-// Same genuinely-interactive stepper as the book detail page — click
-// +/- OR type a number directly, both clamped to [1, MAX_QUANTITY].
-// Mutating `item.quantity` directly is what makes this reactive: `item`
-// here is the actual element inside the `items` ref's array, and Vue's
-// reactivity tracks that nested mutation, so lineTotal/total above
-// recompute immediately without any extra wiring.
 const MAX_QUANTITY = 99
 
 function decrementQuantity(item: BagLineItem) {
@@ -177,18 +141,6 @@ function onQuantityInput(item: BagLineItem, event: Event) {
 
 <template>
   <main class="page">
-    <!-- Everything wrapped in ONE inner container, not left as several
-         separate top-level children of .page — this is the actual
-         structural fix. Centering several sibling elements together
-         relies on flexbox treating the whole sequence as one group,
-         which is more fragile than it needs to be. Wrapping them in a
-         single .page-inner block removes that ambiguity entirely: .page
-         centers exactly one item, full stop, with no room for a subtle
-         multi-child edge case to throw it off. -->
-    <!-- page-inner-empty only applies while there's nothing substantial to
-         show (loading or genuinely empty) — items.length is 0 in both
-         cases. The populated branch (v-else below) never gets this class,
-         so its full-width list/total/checkout layout is untouched. -->
     <div class="page-inner" :class="{ 'page-inner-empty': items.length === 0 }">
       <NuxtLink to="/books" class="back-link">Back to books</NuxtLink>
 
@@ -279,17 +231,6 @@ function onQuantityInput(item: BagLineItem, event: Event) {
   background: var(--paper);
   color: var(--ink);
   font-family: 'Inter', sans-serif;
-  /* .page itself no longer does the centering — see .page-inner below,
-     which centers against the viewport directly via position: fixed.
-     .page just needs to be at least full-viewport height so the white
-     background fills the screen behind that fixed, centered box.
-     100dvh (with 100vh as a fallback for older browsers) tracks the
-     ACTUAL visible viewport on mobile, where 100vh can be taller than
-     what's currently shown behind the browser's address bar.
-     position: relative here is deliberate: it's a plain static-position
-     ancestor, NOT a transformed/positioned one, which is exactly what
-     .page-inner's `position: fixed` needs in order to size itself
-     against the real viewport instead of against this element. */
   min-height: 100vh;
   min-height: 100dvh;
   box-sizing: border-box;
@@ -297,22 +238,6 @@ function onQuantityInput(item: BagLineItem, event: Event) {
 }
 
 .page-inner {
-  /* position: fixed + top/left 50% + translate(-50%, -50%) centers
-     .page-inner against the VIEWPORT directly (100vw/100vh), not
-     against .page's own box. That matters: flex/grid centering only
-     ever centers a child within its immediate parent's content box —
-     if anything upstream of .page (a container, a stray max-width, an
-     injected wrapper from a layout/module) is narrower than the true
-     viewport or isn't itself centered, every child inherits that same
-     offset no matter how "correctly" it centers within its parent.
-     Fixed positioning breaks that chain entirely: its containing block
-     is the viewport itself (as long as no ancestor has a `transform`,
-     which .page doesn't), so this is centered on the real screen
-     regardless of what any ancestor element is doing.
-     calc(100vw - 4rem) / calc(100dvh - 4rem) keep the same 2rem
-     breathing room .page's old padding gave on all sides; max-height +
-     overflow-y let a long bag scroll internally instead of being
-     clipped, since a fixed element no longer grows the page itself. */
   position: fixed;
   top: 50%;
   left: 50%;
@@ -322,20 +247,6 @@ function onQuantityInput(item: BagLineItem, event: Event) {
   overflow-y: auto;
 }
 
-/* The populated bag's own rows/total/checkout-button all stretch to
-   .page-inner's full width, so they fill this box edge-to-edge
-   regardless of internal text alignment — that's what makes the
-   populated state read as "centered" even though nothing inside it is
-   explicitly centered. Loading/empty content has no such full-width
-   element: it's just a short line of text and a button, both far
-   narrower than 720px, so left-aligning them (the default) strands
-   them near the left edge of this same box. This variant turns
-   .page-inner itself into a centered flex column for exactly those two
-   states (see the :class binding in the template — items.length is 0
-   during loading AND when genuinely empty), so the back link, heading,
-   message, and button all sit centered as a group instead. The
-   populated branch never gets this class, so its full-width layout is
-   completely unaffected. */
 .page-inner-empty {
   display: flex;
   flex-direction: column;
@@ -387,12 +298,6 @@ function onQuantityInput(item: BagLineItem, event: Event) {
   margin: 0 0 2rem;
   padding: 0;
   border-top: 3px solid var(--ink);
-  /* Caps at roughly 3 rows (each ~131px: 90px cover + 2×20px padding +
-     1px border) and scrolls beyond that instead of pushing the total
-     and checkout button further down the page for a long bag. With 3
-     or fewer items this has no visible effect at all — content simply
-     doesn't reach the cap, so no scrollbar appears; it only kicks in
-     once there's actually more than fits. */
   max-height: 396px;
   overflow-y: auto;
 }
@@ -450,11 +355,6 @@ function onQuantityInput(item: BagLineItem, event: Event) {
   color: var(--stone);
 }
 
-/* Same stepper styling as the book detail page's quantity control
-   (app/pages/books/[slug].vue) — kept visually identical for
-   consistency, even though this file has its own copy of the CSS (same
-   reasoning as the inlined localStorage functions: no shared file whose
-   path can be wrong). */
 .quantity-stepper {
   display: inline-flex;
   align-items: stretch;
@@ -554,14 +454,6 @@ function onQuantityInput(item: BagLineItem, event: Event) {
   background: var(--ink);
   color: var(--paper);
   border: 3px solid var(--ink);
-  /* box-sizing: border-box is the actual fix for the button overflowing
-     its container — .checkout-btn sets width: 100%, but the default
-     box-sizing (content-box) means that 100% only covers the content
-     box, with padding (2rem = 32px each side) and the 3px border added
-     ON TOP of it. That's 70px of real overflow past the container's
-     right edge, worse the narrower the screen. border-box makes the
-     100% include padding and border, so it can never exceed its
-     container regardless of screen size. */
   box-sizing: border-box;
   font-family: inherit;
   font-size: 0.85rem;

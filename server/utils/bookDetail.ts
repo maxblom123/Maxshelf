@@ -28,13 +28,22 @@ export interface BookDetail {
 }
 
 const DETAIL_TIMEOUT_MS = 12000
+const AUTHOR_TIMEOUT_MS = 5000
+const MAX_SUBJECTS = 12
+const UNKNOWN_AUTHOR = 'Unknown'
 
-async function fetchBookDetail(id: string): Promise<BookDetail> {
-  let work: WorkResponse
+function isNotFoundError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'response' in err &&
+    (err as { response?: { status?: number } }).response?.status === 404
+  )
+}
+
+async function fetchWork(id: string): Promise<WorkResponse> {
   try {
-    // Rate token before the concurrency slot — same shared limiter as
-    // every other OpenLibrary call, see the note in limiter.ts.
-    work = await openLibraryRateLimiter.run(() =>
+    return await openLibraryRateLimiter.run(() =>
       openLibraryApiLimiter.run(() =>
         $fetch<WorkResponse>(`https://openlibrary.org/works/${id}.json`, {
           timeout: DETAIL_TIMEOUT_MS,
@@ -42,8 +51,8 @@ async function fetchBookDetail(id: string): Promise<BookDetail> {
         })
       )
     )
-  } catch (err: any) {
-    if (err?.response?.status === 404) {
+  } catch (err) {
+    if (isNotFoundError(err)) {
       throw createError({ statusCode: 404, statusMessage: 'Book not found' })
     }
     throw createError({
@@ -51,35 +60,35 @@ async function fetchBookDetail(id: string): Promise<BookDetail> {
       statusMessage: 'OpenLibrary took too long to respond. Please try again.',
     })
   }
+}
+
+async function fetchAuthorName(key: string): Promise<string> {
+  try {
+    const author = await openLibraryRateLimiter.run(() =>
+      openLibraryApiLimiter.run(() =>
+        $fetch<{ name?: string }>(`https://openlibrary.org${key}.json`, {
+          timeout: AUTHOR_TIMEOUT_MS,
+          headers: OPENLIBRARY_HEADERS,
+        })
+      )
+    )
+    return author.name ?? UNKNOWN_AUTHOR
+  } catch {
+    return UNKNOWN_AUTHOR
+  }
+}
+
+async function fetchBookDetail(id: string): Promise<BookDetail> {
+  const work = await fetchWork(id)
 
   const authorKeys = (work.authors ?? [])
     .map((a) => a.author?.key)
     .filter((key): key is string => Boolean(key))
 
-  // Each author fetch also goes through the shared limiter — without
-  // this, a book with many co-authors, multiplied by someone clicking
-  // through several detail pages in quick succession, is exactly the
-  // kind of unbounded fan-out that was starving the connection pool.
-  const authorNames = await Promise.all(
-    authorKeys.map(async (key) => {
-      try {
-        const author = await openLibraryRateLimiter.run(() =>
-          openLibraryApiLimiter.run(() =>
-            $fetch<{ name?: string }>(`https://openlibrary.org${key}.json`, {
-              timeout: 5000,
-              headers: OPENLIBRARY_HEADERS,
-            })
-          )
-        )
-        return author.name ?? 'Unknown'
-      } catch {
-        return 'Unknown'
-      }
-    })
-  )
+  const authorNames = await Promise.all(authorKeys.map(fetchAuthorName))
 
   const description =
-    typeof work.description === 'string' ? work.description : work.description?.value ?? null
+    typeof work.description === 'string' ? work.description : (work.description?.value ?? null)
 
   const coverId = work.covers?.find((c) => c > 0) ?? null
 
@@ -88,21 +97,17 @@ async function fetchBookDetail(id: string): Promise<BookDetail> {
     title: work.title,
     authors: authorNames,
     description,
-    subjects: work.subjects?.slice(0, 12) ?? [],
+    subjects: work.subjects?.slice(0, MAX_SUBJECTS) ?? [],
     firstPublishDate: work.first_publish_date ?? null,
     coverUrl: coverId ? `/api/cover/${coverId}?size=large` : null,
     coverId,
   }
 }
 
-const bufferedFetch = buffered(
-  'book-detail',
-  (id: string) => fetchBookDetail(id),
-  {
-    maxAge: 60 * 60,
-    getKey: (id: string) => id,
-  }
-)
+const bufferedFetch = buffered('book-detail', (id: string) => fetchBookDetail(id), {
+  maxAge: 60 * 60,
+  getKey: (id: string) => id,
+})
 
 export async function getBookDetail(id: string): Promise<BookDetail> {
   return bufferedFetch(id)

@@ -8,10 +8,6 @@ definePageMeta({
 
 useHead({
   title: 'Checkout | Maxshelf',
-  // Safari tints its own chrome (iOS status bar/toolbar, macOS 15+ tab
-  // bar) to match theme-color, and Nuxt's useHead updates it
-  // automatically on every client-side navigation — this page's
-  // background is plain white top-to-bottom, matching this value.
   meta: [{ name: 'theme-color', content: '#ffffff' }],
   link: [
     { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -31,9 +27,6 @@ interface BagItem {
 
 const BAG_STORAGE_KEY = 'maxshelf-bag'
 
-// Same inlined-not-imported pattern as bag.vue and [slug].vue — see the
-// comment on the matching function in [slug].vue for why: a shared
-// file's import path is one more thing that can be placed wrong.
 function getBag(): BagItem[] {
   let raw: string | null = null
   try {
@@ -111,16 +104,6 @@ const form = reactive({
 
 const CHECKOUT_INFO_KEY = 'maxshelf-checkout-info'
 
-// Native HTML5 validation (required + type="email"/"tel") does the
-// field-level checking — reportValidity() surfaces the browser's own
-// "please fill this in" prompts on whichever field is invalid, rather
-// than needing hand-rolled validation messages for the same thing.
-//
-// This no longer confirms the order itself — it saves the delivery
-// details to localStorage (read back by /pay, so the payment page can
-// show who/where it's shipping to) and hands off to the actual payment
-// step. The bag itself isn't cleared here; that only happens once
-// payment is "completed" on /pay.
 async function confirmOrder(event: Event) {
   const formEl = event.target as HTMLFormElement
   if (!formEl.checkValidity()) {
@@ -131,9 +114,6 @@ async function confirmOrder(event: Event) {
   try {
     localStorage.setItem(CHECKOUT_INFO_KEY, JSON.stringify({ ...form }))
   } catch {
-    // If this fails (private browsing, storage disabled), /pay just
-    // won't have a "shipping to" summary to show — not fatal, the
-    // payment flow itself doesn't depend on it.
   }
 
   await navigateTo('/pay')
@@ -233,16 +213,6 @@ async function confirmOrder(event: Event) {
 .page *,
 .page *::before,
 .page *::after {
-  /* Universal reset, not a per-element patch — this same bug (width:
-     100% + padding/border with no box-sizing = real overflow past the
-     container) turned up in more than one place here (the confirm
-     button, the form inputs), which is a sign it's a systemic gap in
-     this file rather than one isolated mistake. Resetting box-sizing
-     for everything under .page closes the whole bug class at once
-     instead of chasing individual instances and potentially missing
-     one — every future padded/bordered element on this page inherits
-     the safe default automatically.
-  */
   box-sizing: border-box;
 }
 
@@ -259,13 +229,6 @@ async function confirmOrder(event: Event) {
   background: var(--paper);
   color: var(--ink);
   font-family: 'Inter', sans-serif;
-  /* Same vertical + horizontal centering as bag.vue — min-height (not a
-     fixed height) means this only visibly centers content shorter than
-     the viewport; a bag with enough items to fill the two-column layout
-     past 100vh just grows normally with a scrollbar, nothing clipped.
-     100dvh handles the same mobile browser-chrome issue as elsewhere:
-     100vh can be taller than what's actually visible behind the address
-     bar on a phone. */
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
@@ -447,16 +410,6 @@ async function confirmOrder(event: Event) {
   color: var(--ink);
 }
 
-/* This rule only actually works if every input has a placeholder — an
-   empty required field is :invalid by default in HTML5, and without a
-   placeholder, :placeholder-shown never matches anything (there's
-   nothing to show), so :not(:placeholder-shown) is always true and this
-   selector collapses to just :invalid — meaning every empty required
-   field showed red immediately on page load, before anyone had typed
-   a single character. Adding placeholder text to each input (see the
-   template) is what makes :placeholder-shown correctly reflect "empty,
-   not yet touched" and suppress the red border until there's actually
-   invalid content in the field. */
 .field input:invalid:not(:placeholder-shown) {
   border-color: var(--accent);
 }
