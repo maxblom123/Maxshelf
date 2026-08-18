@@ -98,6 +98,7 @@ The dev server binds to `0.0.0.0`, so it's reachable at `http://localhost:3000`.
 - **This is a demo, not a real store.** Checkout and payment are entirely client-side mock flows. `pay.vue` only checks that a card number and CVC look plausible (digit count, spacing). Nothing is sent to a payment processor, and nothing is charged.
 - **There's no backend database.** The bag and order history are localStorage only, per browser. Clearing site data clears them, and nothing syncs across devices.
 - **The curated genre list is duplicated by hand** in a few places: the books listing page, the `/api/books` route's `VALID_SUBJECTS`, and the warming plugin's `CURATED_GENRES`. All three need to stay in sync if genres are ever added or removed.
+- **As this is using the public api there is often a lot of time outs and bugs coming from 504 error requests**
 
 ## License
 
