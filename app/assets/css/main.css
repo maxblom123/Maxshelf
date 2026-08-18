@@ -1,0 +1,34 @@
+/* margin: 0 on body matters more than it looks like it should for the
+   centering work on pages like bag.vue: every browser's default
+   stylesheet gives <body> an 8px margin, which sits OUTSIDE any given
+   page's own .page element entirely — a page-level min-height: 100dvh
+   has no way to see or cancel that out, since it's a sibling constraint
+   from further up the tree, not something the page's own CSS can reach.
+   That's 16px of real height (8px top + 8px bottom) added on top of a
+   box already sized to exactly the viewport, which is enough on its own
+   to force a scrollbar and throw off "perfectly centered" by a visible
+   amount — worse than the 16px alone once compounded with browser
+   zoom/rendering rounding. Resetting it here removes that whole class
+   of problem for every page at once, not just the one it was noticed
+   on. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* Stops the iOS Safari "rubber-band" bounce effect (the page visibly
+   overscrolling past the top/bottom edge with an elastic snap-back).
+   overscroll-behavior is the modern, correct fix — no JS touchmove
+   hacks needed, supported in all current Safari/iOS versions.
+
+   This has to live in a genuinely global stylesheet, not inside any
+   page's own <style scoped> block: Vue's scoped CSS only reaches
+   elements the component itself renders, and html/body sit outside the
+   Vue app's root entirely, so a scoped rule targeting them silently does
+   nothing regardless of which page it's written in.
+*/
+html,
+body {
+  overscroll-behavior: none;
+}
